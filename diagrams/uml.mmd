@@ -1,0 +1,62 @@
+classDiagram
+    %% PawPal+ class design. Keep this file in sync with your Python implementation.
+
+    class Priority {
+        <<enumeration>>
+        LOW
+        MEDIUM
+        HIGH
+    }
+
+    class Pet {
+        +str name
+        +str species
+        +int age
+        +list~str~ special_care_needs
+        +add_care_need(need str) None
+        +describe() str
+    }
+
+    class Owner {
+        +str name
+        +dict preferences
+        +int available_minutes
+        +list~Pet~ pets
+        +add_pet(pet Pet) None
+        +set_availability(minutes int) None
+        +get_available_minutes() int
+    }
+
+    class Task {
+        +str title
+        +int duration_minutes
+        +Priority priority
+        +str description
+        +Pet pet
+        +priority_score() int
+        +describe() str
+    }
+
+    class ScheduledItem {
+        +str start_time
+        +Task task
+        +describe() str
+    }
+
+    class Scheduler {
+        +Owner owner
+        +list~Task~ tasks
+        +add_task(task Task) None
+        +remove_task(task Task) None
+        +sort_tasks() list~Task~
+        +generate_schedule(start_time str) list~ScheduledItem~
+        +explain() str
+    }
+
+    Owner "1" *-- "0..*" Pet : owns
+    Pet "1" <-- "0..*" Task : has care task
+    Scheduler "1" o-- "0..*" Task : manages
+    Scheduler "1" --> "1" Owner : plans for
+    Scheduler ..> ScheduledItem : produces
+    Task --> Priority : uses
+    ScheduledItem --> Task : wraps
