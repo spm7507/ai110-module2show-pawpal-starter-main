@@ -5,12 +5,28 @@
 **a. Initial design**
 
 - Briefly describe your initial UML design.
+
+My intital UML desgin focused on creating different classes for owner, tasks, and the schedule. The goal for my UML desgin is to make the app is the tasks, and schedule is easy to the follow the data that the pet owner gave. 
+
+
+
 - What classes did you include, and what responsibilities did you assign to each?
+
+1. Pet Class: stores information about the pet
+2. Owner Class: stores information about the owner 
+3. Task Class: stores information of the task that the owner added
+4. Scheduler Class: generates a schedule by roting tasks on the time.
 
 **b. Design changes**
 
 - Did your design change during implementation?
+
+Yes, my design changed a bit during implementation.
+
 - If yes, describe at least one change and why you made it.
+
+The one change that I made is that I created Task class to manage all the tasks that was happening. Before all the tasks belonged to Pet class.
+
 
 ---
 
