@@ -1,5 +1,7 @@
 """Simple unit tests for the PawPal+ domain model."""
 
+import pytest
+
 from pawpal_system import Owner, Pet, Priority, ScheduledItem, Scheduler, Task
 
 
@@ -148,6 +150,17 @@ def test_detect_conflicts_flags_overlapping_items():
     assert conflicts == [(walk, overlap)]
 
 
+def test_detect_conflicts_flags_duplicate_start_times():
+    """Conflict detection: two tasks scheduled at the exact same time clash."""
+    walk = ScheduledItem("08:00", Task("Walk", duration_minutes=30))
+    feed = ScheduledItem("08:00", Task("Feed", duration_minutes=10))
+    sched = _scheduler()
+
+    conflicts = sched.detect_conflicts([walk, feed])
+
+    assert conflicts == [(walk, feed)]
+
+
 def test_find_conflicts_classifies_same_pet_vs_different_pets():
     """Conflict scope: overlaps are tagged same_pet vs. cross-pet correctly."""
     rex = Pet(name="Rex", species="dog", age=4)
@@ -195,3 +208,245 @@ def test_conflict_warning_does_not_crash_on_bad_time():
     message = sched.conflict_warning([good, bad])
 
     assert message is not None and "invalid time" in message
+
+
+# ---------------------------------------------------------------------------
+# Edge cases — sorting
+# ---------------------------------------------------------------------------
+
+
+def test_sort_tasks_is_stable_for_equal_scores():
+    """Sorting: tasks with identical priority_score keep their insertion order."""
+    first = Task("A", duration_minutes=20, priority=Priority.MEDIUM)
+    second = Task("B", duration_minutes=20, priority=Priority.MEDIUM)
+    sched = _scheduler(first, second)
+
+    assert sched.sort_tasks() == [first, second]
+
+
+def test_sort_tasks_by_time_places_midnight_before_untimed():
+    """Sorting by time: a 00:00 task ranks ahead of untimed tasks (parked at 24:00)."""
+    midnight = Task("Midnight meds", duration_minutes=10, time="00:00")
+    untimed = Task("Play", duration_minutes=20)  # time is None
+    sched = _scheduler(untimed, midnight)
+
+    assert [t.title for t in sched.sort_tasks_by_time()] == ["Midnight meds", "Play"]
+
+
+@pytest.mark.xfail(
+    reason="priority_score weights priority by *1000, so durations >= 1000 min "
+    "can overrun the priority band and a lower-priority task sorts first.",
+    strict=True,
+)
+def test_priority_dominates_over_duration_for_very_long_tasks():
+    """Sorting: priority should always beat duration, even for multi-hour tasks."""
+    high_long = Task("Surgery recovery", duration_minutes=2500, priority=Priority.HIGH)
+    med_short = Task("Quick brush", duration_minutes=5, priority=Priority.MEDIUM)
+    sched = _scheduler(high_long, med_short)
+
+    assert sched.sort_tasks()[0] is high_long
+
+
+# ---------------------------------------------------------------------------
+# Edge cases — recurring tasks
+# ---------------------------------------------------------------------------
+
+
+def test_recurring_occurrences_self_overlap_when_interval_lt_duration():
+    """Recurring: interval shorter than duration makes occurrences pile up."""
+    drops = Task(
+        "Eye drops",
+        duration_minutes=10,
+        priority=Priority.HIGH,
+        interval_minutes=5,  # shorter than the 10-min duration
+        occurrences=3,
+    )
+    sched = _scheduler(drops)
+
+    schedule = sched.generate_schedule(start_time="08:00")
+
+    assert [item.start_time for item in schedule] == ["08:00", "08:05", "08:10"]
+    # The scheduler itself produced overlapping placements.
+    assert sched.find_conflicts(schedule)
+
+
+def test_generate_schedule_cursor_advances_one_duration_for_recurring():
+    """Recurring: the placement cursor advances by a single duration, not the
+    full reserved block, so a following task starts inside the reserved window."""
+    meds = Task(
+        "Meds",
+        duration_minutes=10,
+        priority=Priority.HIGH,
+        interval_minutes=480,
+        occurrences=2,
+    )
+    walk = Task("Walk", duration_minutes=30, priority=Priority.LOW)
+    sched = _scheduler(meds, walk, minutes=480)
+
+    schedule = sched.generate_schedule(start_time="08:00")
+
+    # Meds reserves 20 min of budget but the cursor only moved 10 min, so Walk
+    # is placed at 08:10 even though a second Meds dose is reserved for 16:00.
+    assert [(i.start_time, i.task.title) for i in schedule] == [
+        ("08:00", "Meds"),
+        ("16:00", "Meds"),
+        ("08:10", "Walk"),
+    ]
+
+
+def test_recurring_occurrence_wraps_past_midnight():
+    """Recurring: an occurrence pushed past 24:00 wraps to early morning and
+    then sorts *before* its earlier sibling — chronology is silently wrong."""
+    meds = Task(
+        "Meds",
+        duration_minutes=10,
+        priority=Priority.HIGH,
+        interval_minutes=480,
+        occurrences=2,
+    )
+    sched = _scheduler(meds, minutes=480)
+
+    schedule = sched.generate_schedule(start_time="22:00")
+
+    assert [item.start_time for item in schedule] == ["22:00", "06:00"]
+    ordered = Scheduler.sort_by_time(schedule)
+    assert [item.start_time for item in ordered] == ["06:00", "22:00"]
+
+
+def test_next_occurrence_raises_on_malformed_date():
+    """Recurrence: a non-ISO date string surfaces as a ValueError, not a copy."""
+    bad = Task("Walk", duration_minutes=30, date="2026-13-40", recurrence="daily")
+
+    with pytest.raises(ValueError):
+        bad.next_occurrence()
+
+
+def test_next_occurrence_without_date_carries_over_recurrence_fields():
+    """Recurrence: a dateless recurring task copies recurrence and in-day fields."""
+    meds = Task(
+        "Meds",
+        duration_minutes=10,
+        priority=Priority.HIGH,
+        recurrence="daily",
+        interval_minutes=480,
+        occurrences=2,
+    )
+
+    nxt = meds.next_occurrence()
+
+    assert nxt is not None
+    assert nxt.date is None
+    assert nxt.completed is False
+    assert nxt.recurrence == "daily"
+    assert nxt.interval_minutes == 480 and nxt.occurrences == 2
+    assert nxt.is_recurring() is True
+
+
+def test_complete_task_preserves_in_day_recurrence_on_next_occurrence():
+    """Recurrence: completing a combined daily + in-day task keeps both behaviors."""
+    meds = Task(
+        "Meds",
+        duration_minutes=10,
+        date="2026-06-29",
+        recurrence="daily",
+        interval_minutes=480,
+        occurrences=2,
+    )
+    sched = _scheduler(meds)
+
+    nxt = sched.complete_task(meds)
+
+    assert nxt.date == "2026-06-30"
+    assert nxt.occurrences == 2 and nxt.interval_minutes == 480
+    assert nxt.is_recurring() is True
+
+
+# ---------------------------------------------------------------------------
+# Edge cases — conflict / overlap boundaries
+# ---------------------------------------------------------------------------
+
+
+def test_overlap_boundary_is_half_open():
+    """Conflict: ranges are [start, end); touching is fine, 1 min over is not."""
+    walk = ScheduledItem("08:00", Task("Walk", duration_minutes=30))  # 08:00–08:30
+    touching = ScheduledItem("08:30", Task("Feed", duration_minutes=10))
+    overlapping = ScheduledItem("08:29", Task("Vet", duration_minutes=10))
+
+    assert walk.overlaps(touching) is False
+    assert walk.overlaps(overlapping) is True
+
+
+def test_zero_duration_task_only_conflicts_when_strictly_inside():
+    """Conflict: a 0-min task clashes only when strictly inside another range."""
+    walk = ScheduledItem("08:00", Task("Walk", duration_minutes=30))  # 08:00–08:30
+    inside = ScheduledItem("08:10", Task("Check", duration_minutes=0))
+    at_start = ScheduledItem("08:00", Task("Snap", duration_minutes=0))
+    at_end = ScheduledItem("08:30", Task("Note", duration_minutes=0))
+
+    assert walk.overlaps(inside) is True
+    assert walk.overlaps(at_start) is False
+    assert walk.overlaps(at_end) is False
+
+
+def test_conflict_with_unassigned_pets_is_cross_pet():
+    """Conflict scope: tasks with pet=None never crash and count as cross-pet."""
+    a = ScheduledItem("08:00", Task("Walk", duration_minutes=30))
+    b = ScheduledItem("08:10", Task("Vet", duration_minutes=30))
+    sched = _scheduler()
+
+    conflicts = sched.find_conflicts([a, b])
+
+    assert len(conflicts) == 1
+    assert conflicts[0].same_pet is False
+
+
+# ---------------------------------------------------------------------------
+# Edge cases — budget, robustness, empty inputs
+# ---------------------------------------------------------------------------
+
+
+def test_task_fits_when_duration_equals_remaining_budget():
+    """Budget: a task whose duration exactly equals availability still fits."""
+    walk = Task("Walk", duration_minutes=60)
+    sched = _scheduler(walk, minutes=60)
+
+    assert len(sched.generate_schedule()) == 1
+
+
+def test_nothing_scheduled_with_zero_budget():
+    """Budget: zero available minutes means nothing is placed."""
+    sched = _scheduler(Task("Walk", duration_minutes=10), minutes=0)
+
+    assert sched.generate_schedule() == []
+
+
+def test_generate_schedule_raises_on_bad_start_time():
+    """Robustness: unlike conflict_warning, generate_schedule does not guard a
+    malformed start time — it raises while parsing it."""
+    sched = _scheduler(Task("Walk", duration_minutes=10))
+
+    with pytest.raises(ValueError):
+        sched.generate_schedule(start_time="8am")
+
+
+def test_add_task_dedups_value_equal_tasks():
+    """Robustness: dataclass value-equality means two identical tasks collapse
+    to one in the candidate pool."""
+    sched = _scheduler()
+    sched.add_task(Task("Feed Rex", duration_minutes=10))
+    sched.add_task(Task("Feed Rex", duration_minutes=10))
+
+    assert len(sched.tasks) == 1
+
+
+def test_empty_scheduler_operations_are_safe():
+    """Empty inputs: every read path returns cleanly with no tasks."""
+    sched = _scheduler()
+
+    assert sched.sort_tasks() == []
+    assert sched.sort_tasks_by_time() == []
+    assert sched.generate_schedule() == []
+    assert sched.find_conflicts([]) == []
+    assert "No conflicts" in sched.explain_conflicts([])
+    assert sched.conflict_warning([]) is None
+    assert isinstance(sched.explain(), str)

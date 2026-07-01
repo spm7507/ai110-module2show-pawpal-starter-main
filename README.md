@@ -64,6 +64,8 @@ Today's Schedule
 
 ## 🧪 Testing PawPal+
 
+The domain logic in `pawpal_system.py` is covered by unit tests in `tests/test_pawpal.py`.
+
 ```bash
 # Run the full test suite:
 pytest
@@ -75,8 +77,31 @@ pytest --cov
 Sample test output:
 
 ```
-# Paste your pytest output here
+tests/test_pawpal.py ...................x..............          [100%]
+
+======================== 33 passed, 1 xfailed in 0.02s =========================
 ```
+
+### What the suite covers
+
+The tests focus on the scheduling behaviors most likely to break, including these required cases:
+
+| Behavior | Test |
+|----------|------|
+| **Sorting correctness** — items come back in chronological order | `test_sort_by_time_orders_schedule_chronologically` |
+| **Recurrence logic** — completing a daily task creates the next day's task | `test_complete_task_auto_queues_next_occurrence` |
+| **Conflict detection** — two tasks at the same time are flagged | `test_detect_conflicts_flags_duplicate_start_times` |
+
+Beyond those, the suite exercises edge cases: half-open overlap boundaries
+(back-to-back tasks don't clash), midnight wraparound, in-day recurrence spacing,
+zero-duration and exact-budget tasks, unassigned-pet conflicts, malformed times,
+and empty-scheduler safety.
+
+> **One `xfail`:** `test_priority_dominates_over_duration_for_very_long_tasks`
+> documents a known limitation — `Task.priority_score()` weights priority by
+> `×1000`, so a task longer than ~1000 minutes can be out-sorted by a
+> lower-priority one. The test is marked `xfail(strict=True)`, so it will alert
+> us if the scoring is ever fixed.
 
 ## 📐 Smarter Scheduling
 

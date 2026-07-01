@@ -41,7 +41,7 @@ The one change that I made is that I created Task class to manage all the tasks 
 
 - Describe one tradeoff your scheduler makes.
 
-The one tradeoff my scheduler makes is it sorts tasks by priority.Once it sorts the tasks than it starts listing thw place of each which can fit in the owner's remaining time. 
+The one tradeoff my scheduler makes is it sorts tasks by priority.Once it sorts the tasks than it starts listing the place of each which can fit in the owner's remaining time. 
 
 
 
