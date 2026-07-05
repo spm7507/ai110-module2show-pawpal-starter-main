@@ -42,6 +42,35 @@ st.divider()
 
 PRIORITY_MAP = {"low": Priority.LOW, "medium": Priority.MEDIUM, "high": Priority.HIGH}
 
+
+def task_rows(tasks):
+    """Turn Task objects into table-friendly rows for st.table."""
+    return [
+        {
+            "Priority": task.priority.name.title(),
+            "Task": task.title,
+            "Duration": f"{task.duration_minutes} min",
+            "Pet": task.pet.name if task.pet else "—",
+            "Status": "✅ Done" if task.completed else "⏳ Pending",
+        }
+        for task in tasks
+    ]
+
+
+def schedule_rows(items):
+    """Turn ScheduledItem objects into table-friendly rows for st.table."""
+    return [
+        {
+            "Start": item.start_time,
+            "End": item.end_time(),
+            "Task": item.task.title,
+            "Duration": f"{item.task.duration_minutes} min",
+            "Priority": item.task.priority.name.title(),
+            "Pet": item.task.pet.name if item.task.pet else "—",
+        }
+        for item in items
+    ]
+
 # --- session "vault": create the domain objects once, reuse across reruns ---
 if "owner" not in st.session_state:
     st.session_state.owner = Owner(name="Jordan")
@@ -102,9 +131,23 @@ if st.button("Add task"):
         chosen_pet.add_task(task)
 
 if scheduler.tasks:
-    st.write("Current tasks:")
-    for task in scheduler.tasks:
-        st.write(f"- {task.describe()}")
+    st.markdown("#### Current tasks")
+    fcol1, fcol2 = st.columns(2)
+    with fcol1:
+        filter_pet = st.selectbox("Filter by pet", ["(all)"] + [pet.name for pet in owner.pets])
+    with fcol2:
+        status_choice = st.selectbox("Status", ["All", "Pending", "Completed"])
+
+    completed = {"All": None, "Pending": False, "Completed": True}[status_choice]
+    pet_name = None if filter_pet == "(all)" else filter_pet
+    filtered = scheduler.filter_tasks(pet_name=pet_name, completed=completed)
+    filtered = sorted(filtered, key=lambda task: task.priority_score(), reverse=True)
+
+    if filtered:
+        st.caption(f"Showing {len(filtered)} of {len(scheduler.tasks)} task(s), highest priority first.")
+        st.table(task_rows(filtered))
+    else:
+        st.info("No tasks match the current filter.")
 else:
     st.info("No tasks yet. Add one above.")
 
@@ -116,8 +159,19 @@ st.caption("Calls the scheduler to fit tasks into the owner's available time.")
 if st.button("Generate schedule"):
     schedule = scheduler.generate_schedule()
     if schedule:
-        for item in schedule:
-            st.write(item.describe())
+        # Surface overlaps before listing the plan (never raises — safe for UI).
+        warning = scheduler.conflict_warning(schedule)
+        if warning:
+            st.warning(warning)
+        else:
+            st.success("No conflicts — every scheduled task has the owner to itself.")
+
+        # Show the plan in chronological order using the scheduler's sorter.
+        st.table(schedule_rows(Scheduler.sort_by_time(schedule)))
+
+        if warning:
+            with st.expander("Conflict details"):
+                st.text(scheduler.explain_conflicts(schedule))
     else:
         st.info("Nothing scheduled — no tasks fit the available time.")
     st.text(scheduler.explain())

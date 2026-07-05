@@ -103,6 +103,11 @@ and empty-scheduler safety.
 > lower-priority one. The test is marked `xfail(strict=True)`, so it will alert
 > us if the scoring is ever fixed.
 
+
+Confidence Level:
+
+My confidence level is about a 4.5 all the test passed so I am too worried about but sometimes there is always a loop hole in tests. Overall this is my confidence level for the test results.
+
 ## 📐 Smarter Scheduling
 
 Each scheduling feature and the method in `pawpal_system.py` that implements it:
@@ -122,12 +127,72 @@ Each scheduling feature and the method in `pawpal_system.py` that implements it:
 
 ## 📸 Demo Walkthrough
 
-Describe your app in numbered steps so a reader can follow along without watching a video:
+Main UI description:
 
-1. <!-- Describe this step -->
-2. <!-- Describe this step -->
-3. <!-- Describe this step -->
-4. <!-- Describe this step -->
-5. <!-- Add more steps as needed -->
+1. Launch the streamlit app with 'stream lit run app.py.'
+Owner & Pets: sets the owner's name, they would be able to choose how many minutes they have to care for today: They would be able to as
+
+
+Tasks: the owner would be able to add a title for the task, duration, prioriity and which pet to assign to. The task is sorted by the highest priority.
+
+
+Biild Schedule:
+
+First we must click generate schedule. Then the app would show a "conflict warning"(or elese "no conflict").
+
+**Example workflow:**
+
+1. Launch the app with `streamlit run app.py`.
+2. Under **Owner & Pets**, set the owner's name (e.g. Jordan) and available minutes (e.g. 120) — the time budget the scheduler fits tasks into.
+3. Add a pet (e.g. `Mochi`, dog, 3) and click **Add pet**; it appears in the list with its current task count.
+4. Add tasks — e.g. *Morning walk* (20 min, high) and *Play time* (20 min, low) — and assign them to a pet. The task list sorts highest-priority first, and you can filter it by pet or status.
+5. Click **Generate schedule** to see today's plan, any conflict warnings, and the reasoning behind each choice.
+
+**Key Scheduler behaviors shown:**
+
+- **Priority sorting** — the task list and the generated plan lead with the highest-priority tasks, with shorter duration breaking ties.
+- **Time sorting** — the plan is displayed in chronological order by start time.
+- **Filtering** — tasks can be narrowed by pet (case-insensitive name) and by completion status (All / Pending / Completed).
+- **Greedy scheduling** — only tasks that fit the owner's remaining minutes are placed; completed tasks are skipped by default.
+- **Conflict warnings** — overlapping tasks are flagged as same-pet vs. cross-pet, with a UI-safe one-line warning plus an expandable detailed report.
+- **Explanations** — each placed task is justified, and skipped tasks note that there wasn't enough remaining time.
+
+**Sample CLI output** — the command-line demo in `main.py` exercises the same logic without Streamlit:
+
+```bash
+python main.py
+```
+
+```
+Tasks sorted by time
+====================
+07:00 AM — Give medication (10 min) [priority: high] for Whiskers
+07:30 AM — Feed breakfast (15 min) [priority: medium] for Rex
+08:00 AM — Morning walk (30 min) [priority: high] for Rex
+05:00 PM — Play time (20 min) [priority: low] for Whiskers
+
+Rex's tasks
+===========
+- Morning walk (30 min) [priority: high] for Rex
+- Feed breakfast (15 min) [priority: medium] for Rex
+
+Outstanding tasks (not yet done)
+================================
+- Play time (20 min) [priority: low] for Whiskers
+- Morning walk (30 min) [priority: high] for Rex
+- Give medication (10 min) [priority: high] for Whiskers
+
+Today's Schedule
+================
+08:00 AM — Give medication (10 min) [priority: high] for Whiskers
+08:10 AM — Morning walk (30 min) [priority: high] for Rex
+08:40 AM — Play time (20 min) [priority: low] for Whiskers
+
+Conflict Check
+==============
+⚠️ 1 scheduling conflict(s) detected (1 cross-pet) — consider freeing time or rescheduling.
+Found 1 conflict(s):
+  Conflict [different pets]: 'Morning walk' (08:00–08:30) overlaps 'Give medication' (08:00–08:10)
+```
 
 **Screenshot or video** *(optional)*: <!-- Insert a screenshot or link to a demo video here -->
